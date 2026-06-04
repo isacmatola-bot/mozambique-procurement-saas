@@ -57,7 +57,7 @@
 3. Review [Compliance requirements](./docs/COMPLIANCE.md)
 4. Setup production environment
 
-## 🆘 Troubleshooting
+## 🛠️ Troubleshooting
 
 ### Port Already in Use
 ```bash

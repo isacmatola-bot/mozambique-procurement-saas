@@ -34,9 +34,9 @@ A comprehensive contract and invoice generation SaaS tool designed to streamline
 
 ### ✅ Compliance Features
 
-✅ **Decree No. 79/2022 Compliance**
-✅ **Tax Compliance (Law No. 32/2007)**
-✅ **Transparency & Governance**
+✅ **Decree No. 79/2022 Compliance**  
+✅ **Tax Compliance (Law No. 32/2007)**  
+✅ **Transparency & Governance**  
 ✅ **Audit Trails for all Transactions**
 
 ### 🚀 Quick Start
@@ -70,6 +70,7 @@ frontend/         # React/TypeScript UI
 docker-compose.yml
 nginx.conf
 .env.example
+docs/             # Complete documentation
 ```
 
 ### 🔐 Security
@@ -100,46 +101,88 @@ nginx.conf
 - **Caching**: Redis 7
 - **API Documentation**: Swagger/OpenAPI
 
-### 📊 Database Schema
+### 📚 Documentation
 
-Key tables:
-- `users` - System users with roles
-- `suppliers` - Supplier registry (NIF required)
-- `tenders` - Public tenders
-- `bids` - Supplier bids
-- `contracts` - Generated contracts (Decree No. 79/2022)
-- `invoices` - Tax-compliant invoices (VAT 17%)
-- `audit_logs` - Compliance tracking
+- **[QUICK_START.md](./QUICK_START.md)** - Get started in 5 minutes
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Production deployment
+- **[docs/API.md](./docs/API.md)** - API documentation
+- **[docs/COMPLIANCE.md](./docs/COMPLIANCE.md)** - Mozambique compliance guide
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - System architecture
+- **[docs/TESTING.md](./docs/TESTING.md)** - Testing guide
+- **[docs/SETUP.md](./docs/SETUP.md)** - Detailed setup guide
+
+### 📊 Default Login Credentials
+
+After running migrations and seeds:
+
+**Admin Account**
+- Email: `admin@procurement.mz`
+- Password: `admin123`
+
+**Procurement Officer**
+- Email: `procurement@institute.mz`
+- Password: `user123`
+
+**Finance Officer**
+- Email: `finance@institute.mz`
+- Password: `user123`
+
+### 🔄 Database Migrations
+
+```bash
+# Run migrations
+docker exec mozproc_api npm run migrate
+
+# Seed sample data
+docker exec mozproc_api npm run seed
+
+# Rollback
+docker exec mozproc_api npm run migrate:rollback
+```
 
 ### 🧪 Testing
 
 ```bash
-# Run backend tests
-cd backend
+# Run all tests
 npm run test
 
-# Run frontend tests
-cd frontend
-npm run test
+# Backend tests
+cd backend && npm test
 
-# Generate coverage report
+# Frontend tests
+cd frontend && npm test
+
+# Coverage report
 npm run test:coverage
 ```
 
-### 📖 API Documentation
+### 📈 API Endpoints
 
-Full OpenAPI/Swagger documentation available at `http://localhost:3001/api/docs`
+Full API documentation at `http://localhost:3001/api/docs`
 
-**Key Endpoints:**
-- `POST /api/auth/login` - User authentication
-- `POST /api/suppliers` - Register supplier
+**Authentication**
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+
+**Suppliers**
 - `GET /api/suppliers` - List suppliers
-- `POST /api/tenders` - Create tender
+- `POST /api/suppliers` - Create supplier
+- `GET /api/suppliers/:id` - Get supplier details
+- `PUT /api/suppliers/:id` - Update supplier
+
+**Tenders**
 - `GET /api/tenders` - List tenders
-- `POST /api/contracts` - Generate contract
+- `POST /api/tenders` - Create tender
+
+**Contracts**
 - `GET /api/contracts` - List contracts
-- `POST /api/invoices` - Create invoice (VAT compliant)
+- `POST /api/contracts` - Generate contract
+
+**Invoices** (VAT Compliant)
 - `GET /api/invoices` - List invoices
+- `POST /api/invoices` - Create invoice
+
+**Reports**
 - `GET /api/reports/compliance` - Compliance report
 
 ### 🌍 Localization
@@ -150,63 +193,37 @@ Full OpenAPI/Swagger documentation available at `http://localhost:3001/api/docs`
 - **Tax**: VAT Law No. 32/2007 (17% standard rate)
 - **Timezone**: Africa/Maputo
 
-### 📋 Workflows
+### 📋 Features Checklist
 
-#### Procurement Workflow
-1. Tender Creation
-2. Supplier Registration/Validation
-3. Bid Submission
-4. Bid Evaluation & Scoring
-5. Award Decision
-6. Contract Generation
-7. Contract Signing (Digital)
-8. Order Confirmation
+- ✅ Supplier Management
+- ✅ Tender Management
+- ✅ Contract Generation
+- ✅ Invoice Generation (VAT compliant)
+- ✅ Digital Signatures
+- ✅ Audit Logging
+- ✅ Role-Based Access Control
+- ✅ Compliance Reporting
+- ✅ Electronic Invoicing Ready
+- ✅ 10-Year Invoice Retention
+- ✅ Docker Containerization
+- ✅ PostgreSQL Database
+- ✅ Redis Caching
+- ✅ File Storage (MinIO)
+- ✅ Nginx Reverse Proxy
+- ✅ CI/CD Pipeline
+- ✅ Full Documentation
 
-#### Invoice Workflow
-1. Invoice Creation
-2. Tax Compliance Validation (VAT, NIF)
-3. Multi-step Approval
-4. Payment Processing
-5. 10-Year Archival & Retention
+### 📞 Support
 
-### 📊 Compliance Monitoring
-
-- Real-time regulatory change alerts
-- Automatic compliance checks
-- Non-compliance warnings
-- Audit readiness reports
-- Tax filing assistance
-- Local content margin tracking
-- Beneficial ownership disclosure tracking
-
-### 📚 Deployment
-
-See `DEPLOYMENT.md` for production deployment guide
-
-### 🔧 Environment Variables
-
-See `.env.example` for complete configuration
-
-### 🤝 Contributing
-
-See `CONTRIBUTING.md` for guidelines
+- **Issues**: https://github.com/isacmatola-bot/mozambique-procurement-saas/issues
+- **Email**: support@procurement-saas.mz
+- **Documentation**: See `/docs` folder
 
 ### 📄 License
 
 Proprietary - Instituto de Formacao de Professores de Inhamizua
 
-### 📞 Support
-
-For support:
-- 📧 Email: support@procurement-saas.mz
-- 📚 Documentation: `/docs`
-- 🐛 Issues: GitHub Issues
-
-### 📝 Changelog
-
-See `CHANGELOG.md` for version history
-
----
+### 🎉 Status
 
 **Ready to Launch** ✅
 - Complete source code
@@ -216,3 +233,10 @@ See `CHANGELOG.md` for version history
 - Full documentation
 - API specification
 - Deployment guide
+- CI/CD pipeline
+
+---
+
+**Created**: January 2024  
+**Version**: 1.0.0  
+**Status**: Production Ready 🚀
