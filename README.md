@@ -34,9 +34,9 @@ A comprehensive contract and invoice generation SaaS tool designed to streamline
 
 ### ✅ Compliance Features
 
-✅ **Decree No. 79/2022 Compliance**  
-✅ **Tax Compliance (Law No. 32/2007)**  
-✅ **Transparency & Governance**  
+✅ **Decree No. 79/2022 Compliance**
+✅ **Tax Compliance (Law No. 32/2007)**
+✅ **Transparency & Governance**
 ✅ **Audit Trails for all Transactions**
 
 ### 🚀 Quick Start
@@ -100,7 +100,7 @@ nginx.conf
 - **Caching**: Redis 7
 - **API Documentation**: Swagger/OpenAPI
 
-### 📚 Database Schema
+### 📊 Database Schema
 
 Key tables:
 - `users` - System users with roles
@@ -150,7 +150,7 @@ Full OpenAPI/Swagger documentation available at `http://localhost:3001/api/docs`
 - **Tax**: VAT Law No. 32/2007 (17% standard rate)
 - **Timezone**: Africa/Maputo
 
-### 💼 Workflows
+### 📋 Workflows
 
 #### Procurement Workflow
 1. Tender Creation
@@ -179,11 +179,11 @@ Full OpenAPI/Swagger documentation available at `http://localhost:3001/api/docs`
 - Local content margin tracking
 - Beneficial ownership disclosure tracking
 
-### 🚢 Deployment
+### 📚 Deployment
 
 See `DEPLOYMENT.md` for production deployment guide
 
-### 📝 Environment Variables
+### 🔧 Environment Variables
 
 See `.env.example` for complete configuration
 
@@ -202,7 +202,7 @@ For support:
 - 📚 Documentation: `/docs`
 - 🐛 Issues: GitHub Issues
 
-### 📋 Changelog
+### 📝 Changelog
 
 See `CHANGELOG.md` for version history
 

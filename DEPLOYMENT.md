@@ -34,7 +34,7 @@ cp .env.example .env
 vim .env
 
 # Start all services
-docker-compose -f docker-compose.yml up -d
+docker-compose -f docker-compose.prod.yml up -d
 
 # Run migrations
 docker exec mozproc_api npm run migrate
