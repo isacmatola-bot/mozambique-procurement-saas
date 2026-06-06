@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = '/api';
 
 export type User = {
   id: string;
@@ -42,5 +42,62 @@ export async function login(email: string, password: string) {
   return api<{ token: string; user: User }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  });
+}
+
+export type AiRecommendation = {
+  id: string;
+  tender_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  score: string;
+  rank: number;
+  risk_level: string;
+  reasons: string[];
+  warnings: string[];
+  model_used: string;
+  status: string;
+  created_at: string;
+};
+
+export type AiRecommendationsResponse = {
+  tenderId?: string;
+  count?: number;
+  recommendations: AiRecommendation[];
+};
+
+export async function runAiRecommendations(tenderId: string) {
+  return api<AiRecommendationsResponse>('/ai/recommendations/run', {
+    method: 'POST',
+    body: JSON.stringify({ tenderId })
+  });
+}
+
+export async function getAiRecommendations(tenderId: string) {
+  return api<AiRecommendationsResponse>(`/ai/tenders/${tenderId}/recommendations`);
+}
+
+export async function approveAiRecommendation(recommendationId: string, officerReason: string) {
+  return api<{ approval: unknown }>(`/ai/recommendations/${recommendationId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({
+      decision: 'approved',
+      officerReason
+    })
+  });
+}
+
+export async function recordSupplierPerformance(input: {
+  supplierId: string;
+  tenderId: string;
+  deliveryScore: number;
+  qualityScore: number;
+  complianceScore: number;
+  timelinessScore: number;
+  notes: string;
+}) {
+  return api<{ performance: unknown }>('/ai/performance', {
+    method: 'POST',
+    body: JSON.stringify(input)
   });
 }

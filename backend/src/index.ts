@@ -14,6 +14,7 @@ import contractRoutes from './routes/contracts.js';
 import invoiceRoutes from './routes/invoices.js';
 import aiRoutes from './routes/ai.js';
 import reportRoutes from './routes/reports.js';
+import aiRecommendationsRouter from './routes/aiRecommendations.js';
 
 const app = express();
 
@@ -33,7 +34,7 @@ app.use('/api/suppliers', requireAuth, supplierRoutes);
 app.use('/api/tenders', requireAuth, tenderRoutes);
 app.use('/api/contracts', requireAuth, contractRoutes);
 app.use('/api/invoices', requireAuth, invoiceRoutes);
-app.use('/api/ai', requireAuth, aiRoutes);
+app.use('/api/ai', requireAuth, aiRecommendationsRouter);
 app.use('/api/reports', requireAuth, reportRoutes);
 
 app.use(notFound);
