@@ -170,10 +170,11 @@ router.post('/recommendations/run', async (req, res, next) => {
 
     scored.sort((a, b) => b.score - a.score);
 
+    const topRecommendations = scored.slice(0, 5);
     const saved = [];
 
-    for (let i = 0; i < scored.length; i++) {
-      const item = scored[i];
+    for (let i = 0; i < topRecommendations.length; i++) {
+      const item = topRecommendations[i];
 
       const insert = await query(
         `
