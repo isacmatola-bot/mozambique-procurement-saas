@@ -14,11 +14,19 @@ export type ContractExtraction = {
   compliance_notes: string[];
 };
 
+function parseAmount(value: string) {
+  const normalized = value.replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function demoExtract(text: string): ContractExtraction {
-  const valueMatch = text.match(/(?:MZN|MT|meticais)?\s*([0-9][0-9\s.,]{3,})/i);
+  const valueMatch =
+    text.match(/(?:valor|value|amount|preço|preco)[:\s-]*(?:MZN|MT|meticais)?\s*([0-9][0-9\s.,]{1,})/i) ??
+    text.match(/(?:MZN|MT|meticais)\s*([0-9][0-9\s.,]{1,})/i);
   const nifMatch = text.match(/NIF[:\s-]*([0-9]{8,12})/i);
   const vendorMatch = text.match(/(?:fornecedor|supplier|contratada)[:\s-]*([^\n.,;]+)/i);
-  const amount = valueMatch ? Number(valueMatch[1].replace(/\s/g, '').replace(/\./g, '').replace(',', '.')) : null;
+  const amount = valueMatch ? parseAmount(valueMatch[1]) : null;
   return {
     vendor_name: vendorMatch?.[1]?.trim() || null,
     vendor_nif: nifMatch?.[1] || null,

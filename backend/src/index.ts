@@ -34,6 +34,7 @@ app.use('/api/suppliers', requireAuth, supplierRoutes);
 app.use('/api/tenders', requireAuth, tenderRoutes);
 app.use('/api/contracts', requireAuth, contractRoutes);
 app.use('/api/invoices', requireAuth, invoiceRoutes);
+app.use('/api/ai', requireAuth, aiRoutes);
 app.use('/api/ai', requireAuth, aiRecommendationsRouter);
 app.use('/api/reports', requireAuth, reportRoutes);
 
