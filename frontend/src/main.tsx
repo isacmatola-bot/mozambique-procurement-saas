@@ -8,6 +8,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Suppliers } from './pages/Suppliers';
 import { Tenders } from './pages/Tenders';
+import { Bids } from './pages/Bids';
 import { Contracts } from './pages/Contracts';
 import { Invoices } from './pages/Invoices';
 import { Analyzer } from './pages/Analyzer';
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route index element={<Dashboard />} />
           <Route path="suppliers" element={<Suppliers />} />
           <Route path="tenders" element={<Tenders />} />
+          <Route path="bids" element={<Bids />} />
           <Route path="contracts" element={<Contracts />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="analyzer" element={<Analyzer />} />

@@ -35,6 +35,110 @@ function totalScore(technical: number, financial: number, localPreference: boole
   return Math.min(100, Number((base + (localPreference ? 5 : 0)).toFixed(2)));
 }
 
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Number(value.toFixed(2))));
+}
+
+function autoScoreBid(tender: any, supplier: any, amount: number) {
+  const reasons: string[] = [];
+  const tenderCategory = normalizeText(tender.category);
+  const supplierCategory = normalizeText(supplier.category);
+  const supplierStatus = normalizeText(supplier.status || 'active');
+  const budget = Number(tender.budget || 0);
+  const bidAmount = Number(amount || 0);
+
+  let technical = 55;
+
+  if (tenderCategory && supplierCategory && tenderCategory === supplierCategory) {
+    technical += 30;
+    reasons.push('Supplier category exactly matches the tender category.');
+  } else if (
+    tenderCategory &&
+    supplierCategory &&
+    (supplierCategory.includes(tenderCategory) || tenderCategory.includes(supplierCategory))
+  ) {
+    technical += 18;
+    reasons.push('Supplier category partially matches the tender category.');
+  } else {
+    technical -= 25;
+    reasons.push('Supplier category does not match the tender category.');
+  }
+
+  if (supplierStatus === 'active') {
+    technical += 10;
+    reasons.push('Supplier status is active.');
+  } else {
+    technical -= 30;
+    reasons.push(`Supplier status is ${supplierStatus}, which reduces technical confidence.`);
+  }
+
+  if (supplier.beneficial_ownership_disclosed) {
+    technical += 5;
+    reasons.push('Beneficial ownership is disclosed.');
+  } else {
+    technical -= 10;
+    reasons.push('Beneficial ownership is not disclosed.');
+  }
+
+  if (supplier.local_supplier) {
+    technical += 5;
+    reasons.push('Local supplier preference considered.');
+  }
+
+  const riskScore = Number(supplier.risk_score || 0);
+  if (riskScore > 0) {
+    const riskPenalty = Math.min(25, riskScore * 0.25);
+    technical -= riskPenalty;
+    reasons.push(`Supplier risk score penalty applied: ${riskScore}.`);
+  }
+
+  let financial = 60;
+
+  if (budget <= 0 || bidAmount <= 0) {
+    financial = 0;
+    reasons.push('Tender budget or bid amount is missing, so financial score is zero.');
+  } else {
+    const ratio = bidAmount / budget;
+
+    if (ratio > 1.25) {
+      financial = 25;
+      reasons.push('Bid amount is more than 25% above tender budget.');
+    } else if (ratio > 1.1) {
+      financial = 45;
+      reasons.push('Bid amount is more than 10% above tender budget.');
+    } else if (ratio > 1) {
+      financial = 65;
+      reasons.push('Bid amount is slightly above tender budget.');
+    } else if (ratio >= 0.75) {
+      financial = 95;
+      reasons.push('Bid amount is within an acceptable competitive range.');
+    } else if (ratio >= 0.5) {
+      financial = 75;
+      reasons.push('Bid amount is low compared with the tender budget; underpricing risk considered.');
+    } else if (ratio >= 0.35) {
+      financial = 55;
+      reasons.push('Bid amount is very low compared with the tender budget; stronger underpricing risk applied.');
+    } else {
+      financial = 30;
+      reasons.push('Bid amount is extremely low compared with the tender budget; severe underpricing risk applied.');
+    }
+  }
+
+  const technicalScore = clampScore(technical);
+  const financialScore = clampScore(financial);
+
+  return {
+    technicalScore,
+    financialScore,
+    totalScore: totalScore(technicalScore, financialScore, Boolean(supplier.local_supplier)),
+    reasons
+  };
+}
+
 router.get('/', async (req: AuthedRequest, res) => {
   const rows = await query(
     `select t.*, count(b.id)::int as bid_count
@@ -93,16 +197,43 @@ router.get('/:id/bids', async (req: AuthedRequest, res) => {
 
 router.post('/:id/bids', async (req: AuthedRequest, res) => {
   const body = bidSchema.parse(req.body);
-  const tender = await one('select id from tenders where id=$1 and organization_id=$2', [req.params.id, req.user!.organization_id]);
+  const tender = await one(
+    'select id,title,category,budget,procurement_method from tenders where id=$1 and organization_id=$2',
+    [req.params.id, req.user!.organization_id]
+  );
   if (!tender) return res.status(404).json({ error: 'Tender not found' });
-  const supplier = await one('select id,name from suppliers where id=$1 and organization_id=$2', [body.supplier_id, req.user!.organization_id]);
+
+  const supplier = await one(
+    `select id,name,category,status,risk_score,local_supplier,beneficial_ownership_disclosed
+     from suppliers
+     where id=$1 and organization_id=$2`,
+    [body.supplier_id, req.user!.organization_id]
+  );
   if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+  const autoScore = autoScoreBid(tender, supplier, body.amount);
+  const autoNotes = [
+    body.notes,
+    `Auto scoring applied. Technical score: ${autoScore.technicalScore}. Financial score: ${autoScore.financialScore}. Reasons: ${autoScore.reasons.join(' ')}`
+  ].filter(Boolean).join('\n\n');
+
   const row = await one(
     `insert into bids (tender_id,supplier_id,amount,currency,technical_score,financial_score,local_preference_applied,total_score,status,notes)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      on conflict (tender_id, supplier_id) do update set amount=excluded.amount,currency=excluded.currency,technical_score=excluded.technical_score,financial_score=excluded.financial_score,local_preference_applied=excluded.local_preference_applied,total_score=excluded.total_score,status=excluded.status,notes=excluded.notes
      returning *`,
-    [req.params.id, body.supplier_id, body.amount, body.currency, body.technical_score, body.financial_score, body.local_preference_applied, totalScore(body.technical_score, body.financial_score, body.local_preference_applied), body.status, body.notes]
+    [
+      req.params.id,
+      body.supplier_id,
+      body.amount,
+      body.currency,
+      autoScore.technicalScore,
+      autoScore.financialScore,
+      Boolean(supplier.local_supplier),
+      autoScore.totalScore,
+      body.status,
+      autoNotes
+    ]
   );
   await audit(req.user, 'upsert', 'bid', row.id, { tender_id: req.params.id, supplier: supplier.name }, req.ip);
   res.status(201).json(row);
