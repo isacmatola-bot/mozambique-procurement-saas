@@ -3,7 +3,7 @@ import { api } from '../api';
 import { ErrorBox } from '../ui/Status';
 
 const sample = `Fornecedor: Beira Office Supplies Lda
-NIF: 401234567
+NUIT: 401234567
 Valor: MZN 790000
 Pagamento em 30 dias após recepção e validação da factura.
 O contrato pode ser rescindido em caso de incumprimento grave.`;

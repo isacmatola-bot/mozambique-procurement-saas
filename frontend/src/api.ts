@@ -22,10 +22,12 @@ export function clearToken() {
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
+  const isFormData = options.body instanceof FormData;
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
@@ -101,3 +103,65 @@ export async function recordSupplierPerformance(input: {
     body: JSON.stringify(input)
   });
 }
+
+export type SupplierDocument = {
+  id: string;
+  supplier_id: string;
+  document_type: string;
+  original_filename: string;
+  mime_type?: string;
+  size_bytes?: string | number;
+  verification_status: string;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getSupplierDocuments(supplierId: string) {
+  return api<SupplierDocument[]>(`/suppliers/${supplierId}/documents`);
+}
+
+export async function uploadSupplierDocument(
+  supplierId: string,
+  input: { file: File; documentType: string; notes?: string }
+) {
+  const formData = new FormData();
+  formData.append('document', input.file);
+  formData.append('document_type', input.documentType);
+  if (input.notes) formData.append('notes', input.notes);
+
+  return api<SupplierDocument>(`/suppliers/${supplierId}/documents`, {
+    method: 'POST',
+    body: formData
+  });
+}
+
+export async function downloadSupplierDocument(
+  supplierId: string,
+  documentId: string,
+  filename: string
+) {
+  const token = getToken();
+
+  const response = await fetch(`${API_URL}/suppliers/${supplierId}/documents/${documentId}/download`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Download failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
