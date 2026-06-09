@@ -5,7 +5,12 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
-  ssl: config.databaseUrl.includes('supabase.co') ? { rejectUnauthorized: false } : undefined
+  ssl:
+    config.nodeEnv === 'production' ||
+    config.databaseUrl.includes('supabase.co') ||
+    config.databaseUrl.includes('supabase.com')
+      ? { rejectUnauthorized: false }
+      : undefined
 });
 
 export async function query<T = any>(text: string, params: any[] = []): Promise<T[]> {
