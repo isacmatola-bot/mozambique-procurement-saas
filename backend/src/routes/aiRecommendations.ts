@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
+import { generateTenderAwardExcel } from '../services/tenderAwardExcel.js';
 
 const router = Router();
 
@@ -352,14 +353,144 @@ router.post('/recommendations/:id/decision', async (req, res, next) => {
       ]
     );
 
-    await query(
-      `
-      UPDATE ai_supplier_recommendations
-      SET status = $1
-      WHERE id = $2
-      `,
-      [decision, recommendation.id]
-    );
+    let auditFile = null;
+
+    if (decision === 'approved') {
+      const tenderResult = await query(
+        `SELECT * FROM tenders WHERE id::text = $1 LIMIT 1`,
+        [String(recommendation.tender_id)]
+      );
+
+      if (tenderResult.length === 0) {
+        return res.status(404).json({ error: 'Tender not found for approved recommendation' });
+      }
+
+      const winningSupplierResult = await query(
+        `SELECT * FROM suppliers WHERE id::text = $1 LIMIT 1`,
+        [String(recommendation.supplier_id)]
+      );
+
+      if (winningSupplierResult.length === 0) {
+        return res.status(404).json({ error: 'Winning supplier not found' });
+      }
+
+      const winningBidResult = await query(
+        `
+        SELECT b.*, s.name AS supplier_name
+        FROM bids b
+        JOIN suppliers s ON s.id = b.supplier_id
+        WHERE b.tender_id::text = $1
+          AND b.supplier_id::text = $2
+        LIMIT 1
+        `,
+        [String(recommendation.tender_id), String(recommendation.supplier_id)]
+      );
+
+      if (winningBidResult.length === 0) {
+        return res.status(404).json({ error: 'Winning bid not found for this tender and supplier' });
+      }
+
+      const ranking = await query(
+        `
+        SELECT *
+        FROM ai_supplier_recommendations
+        WHERE tender_id = $1
+        ORDER BY rank ASC, score DESC, created_at DESC
+        `,
+        [String(recommendation.tender_id)]
+      );
+
+      const allBids = await query(
+        `
+        SELECT b.*, s.name AS supplier_name, s.nif AS supplier_nuit, s.category AS supplier_category,
+               s.status AS supplier_status, s.risk_score AS supplier_risk_score
+        FROM bids b
+        JOIN suppliers s ON s.id = b.supplier_id
+        WHERE b.tender_id::text = $1
+        ORDER BY b.total_score DESC, b.amount ASC, b.submitted_at ASC
+        `,
+        [String(recommendation.tender_id)]
+      );
+
+      const excel = await generateTenderAwardExcel({
+        tender: tenderResult[0],
+        winningBid: winningBidResult[0],
+        winningSupplier: winningSupplierResult[0],
+        approval: approval[0],
+        ranking,
+        allBids,
+        officerReason: officerReason || null
+      });
+
+      const auditFileResult = await query(
+        `
+        INSERT INTO tender_award_audit_files
+          (organization_id, tender_id, winning_supplier_id, winning_bid_id, recommendation_id, approval_id,
+           file_name, file_path, size_bytes, generated_by, decision_summary)
+        VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        RETURNING *
+        `,
+        [
+          tenderResult[0].organization_id || null,
+          String(recommendation.tender_id),
+          String(recommendation.supplier_id),
+          String(winningBidResult[0].id),
+          String(recommendation.id),
+          String(approval[0].id),
+          excel.fileName,
+          excel.filePath,
+          excel.sizeBytes,
+          officerId || null,
+          `Tender awarded to ${winningSupplierResult[0].name}. AI rank: ${recommendation.rank}. Score: ${recommendation.score}.`
+        ]
+      );
+
+      auditFile = auditFileResult[0];
+
+      await query(
+        `
+        UPDATE bids
+        SET status = CASE
+          WHEN supplier_id::text = $2 THEN 'winner'
+          ELSE 'rejected'
+        END
+        WHERE tender_id::text = $1
+        `,
+        [String(recommendation.tender_id), String(recommendation.supplier_id)]
+      );
+
+      await query(
+        `
+        UPDATE tenders
+        SET status = 'awarded',
+            updated_at = now()
+        WHERE id::text = $1
+        `,
+        [String(recommendation.tender_id)]
+      );
+
+      await query(
+        `
+        UPDATE ai_supplier_recommendations
+        SET status = CASE
+          WHEN id = $2 THEN 'approved'
+          ELSE 'archived'
+        END
+        WHERE tender_id = $1
+        `,
+        [String(recommendation.tender_id), String(recommendation.id)]
+      );
+    } else {
+      await query(
+        `
+        UPDATE ai_supplier_recommendations
+        SET status = $1
+        WHERE id = $2
+        `,
+        [decision, recommendation.id]
+      );
+    }
 
     await query(
       `
@@ -372,13 +503,66 @@ router.post('/recommendations/:id/decision', async (req, res, next) => {
         'ai_supplier_recommendation',
         recommendation.id,
         JSON.stringify(recommendation),
-        JSON.stringify(approval[0])
+        JSON.stringify({ approval: approval[0], auditFile })
       ]
     );
 
     res.json({
-      approval: approval[0]
+      approval: approval[0],
+      auditFile
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.get('/tenders/:tenderId/audit-files', async (req, res, next) => {
+  try {
+    const result = await query(
+      `
+      SELECT id, tender_id, winning_supplier_id, winning_bid_id, recommendation_id,
+             approval_id, file_name, mime_type, size_bytes, generated_by,
+             decision_summary, created_at
+      FROM tender_award_audit_files
+      WHERE tender_id::text = $1
+      ORDER BY created_at DESC
+      `,
+      [String(req.params.tenderId)]
+    );
+
+    res.json({ auditFiles: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/tenders/:tenderId/audit-files/:fileId/download', async (req, res, next) => {
+  try {
+    const result = await query(
+      `
+      SELECT *
+      FROM tender_award_audit_files
+      WHERE tender_id::text = $1
+        AND id::text = $2
+      LIMIT 1
+      `,
+      [String(req.params.tenderId), String(req.params.fileId)]
+    );
+
+    if (result.length === 0) {
+      return res.status(404).json({ error: 'Audit file not found' });
+    }
+
+    const file = result[0];
+
+    const fs = await import('fs');
+
+    if (!fs.existsSync(file.file_path)) {
+      return res.status(404).json({ error: 'Stored audit file not found' });
+    }
+
+    res.download(file.file_path, file.file_name);
   } catch (error) {
     next(error);
   }
