@@ -122,7 +122,7 @@ export function Suppliers() {
     }
 
     try {
-      await uploadSupplierDocument(selectedSupplier.id, {
+      const uploaded = await uploadSupplierDocument(selectedSupplier.id, {
         file: docForm.file,
         documentType: docForm.documentType,
         notes: docForm.notes
@@ -130,8 +130,17 @@ export function Suppliers() {
 
       setDocForm({ documentType: 'tax_clearance', notes: '', file: null });
       setFileInputKey(k => k + 1);
-      setAiRecommendation(null);
-      setSuccess('Supplier document uploaded.');
+      setAiRecommendation(uploaded.ai_recommendation || null);
+
+      if (uploaded.ai_recommendation) {
+        setSuccess(
+          `Supplier document uploaded. AI recommends: ${uploaded.ai_recommendation.recommended_status} ` +
+          `(${uploaded.ai_recommendation.confidence}% confidence). Notification created: ${uploaded.notification?.channel || 'in_app'}.`
+        );
+      } else {
+        setSuccess('Supplier document uploaded.');
+      }
+
       await loadDocuments(selectedSupplier.id);
     } catch (err: any) {
       setError(err.message);
@@ -344,7 +353,7 @@ export function Suppliers() {
 
           {aiRecommendation && (
             <div className="card" style={{ marginBottom: '1rem' }}>
-              <h4>AI document validation</h4>
+              <h4>AI document validation / pre-validation</h4>
               <p>
                 Recommended status: <strong>{aiRecommendation.recommended_status}</strong> · Confidence:{' '}
                 <strong>{aiRecommendation.confidence}%</strong>

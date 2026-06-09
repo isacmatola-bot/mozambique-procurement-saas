@@ -130,7 +130,7 @@ export async function uploadSupplierDocument(
   formData.append('document_type', input.documentType);
   if (input.notes) formData.append('notes', input.notes);
 
-  return api<SupplierDocument>(`/suppliers/${supplierId}/documents`, {
+  return api<SupplierDocumentUploadResponse>(`/suppliers/${supplierId}/documents`, {
     method: 'POST',
     body: formData
   });
@@ -193,6 +193,37 @@ export type SupplierDocumentAiRecommendation = {
   warnings: string[];
   model: string;
   provider: string;
+};
+
+export type SupplierDocumentAiValidation = {
+  id: string;
+  supplier_id: string;
+  document_id: string;
+  recommended_status: 'verified' | 'rejected' | 'expired';
+  confidence: string | number;
+  reasons: string[];
+  warnings: string[];
+  provider: string;
+  created_at: string;
+};
+
+export type SupplierDocumentNotification = {
+  id: string;
+  supplier_id: string;
+  document_id: string;
+  channel: 'email' | 'sms' | 'whatsapp' | 'in_app';
+  recipient?: string | null;
+  subject?: string | null;
+  message: string;
+  status: string;
+  provider?: string | null;
+  created_at: string;
+};
+
+export type SupplierDocumentUploadResponse = SupplierDocument & {
+  ai_recommendation?: SupplierDocumentAiRecommendation;
+  ai_validation?: SupplierDocumentAiValidation;
+  notification?: SupplierDocumentNotification;
 };
 
 export async function aiValidateSupplierDocument(supplierId: string, documentId: string) {
