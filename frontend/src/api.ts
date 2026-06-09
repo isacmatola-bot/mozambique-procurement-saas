@@ -165,3 +165,40 @@ export async function downloadSupplierDocument(
   URL.revokeObjectURL(url);
 }
 
+export async function updateSupplierDocumentStatus(
+  supplierId: string,
+  documentId: string,
+  verificationStatus: 'pending' | 'verified' | 'rejected' | 'expired',
+  notes?: string
+) {
+  return api<SupplierDocument>(`/suppliers/${supplierId}/documents/${documentId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      verification_status: verificationStatus,
+      notes
+    })
+  });
+}
+
+export type SupplierDocumentAiRecommendation = {
+  document_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  original_filename: string;
+  document_type: string;
+  current_status: string;
+  recommended_status: 'verified' | 'rejected' | 'expired';
+  confidence: number;
+  reasons: string[];
+  warnings: string[];
+  model: string;
+  provider: string;
+};
+
+export async function aiValidateSupplierDocument(supplierId: string, documentId: string) {
+  return api<{ recommendation: SupplierDocumentAiRecommendation }>(
+    `/suppliers/${supplierId}/documents/${documentId}/ai-validate`,
+    { method: 'POST' }
+  );
+}
+

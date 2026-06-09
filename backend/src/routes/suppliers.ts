@@ -47,6 +47,11 @@ const documentSchema = z.object({
   notes: z.string().optional().nullable()
 });
 
+const documentStatusSchema = z.object({
+  verification_status: z.enum(['pending', 'verified', 'rejected', 'expired']),
+  notes: z.string().optional().nullable()
+});
+
 const supplierSchema = z.object({
   name: z.string().min(2),
   nif: z.string().optional().nullable(),
@@ -174,6 +179,122 @@ router.post('/:id/documents', upload.single('document'), async (req: AuthedReque
   res.status(201).json(row);
 });
 
+router.post('/:id/documents/:documentId/ai-validate', async (req: AuthedRequest, res) => {
+  const doc = await one(
+    `select sd.*, s.name as supplier_name, s.nif as supplier_nif, s.status as supplier_status, s.risk_score
+     from supplier_documents sd
+     join suppliers s on s.id = sd.supplier_id
+     where sd.id=$1
+       and sd.supplier_id=$2
+       and sd.organization_id=$3
+       and s.organization_id=$3`,
+    [req.params.documentId, req.params.id, req.user!.organization_id]
+  );
+
+  if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+  let recommendedStatus: 'verified' | 'rejected' | 'expired' = 'verified';
+  let confidence = 70;
+
+  const filename = String(doc.original_filename || '').toLowerCase();
+  const documentType = String(doc.document_type || '').toLowerCase();
+  const mimeType = String(doc.mime_type || '').toLowerCase();
+  const sizeBytes = Number(doc.size_bytes || 0);
+
+  if (!fs.existsSync(doc.file_path)) {
+    recommendedStatus = 'rejected';
+    confidence = 95;
+    reasons.push('Stored file is missing from the server.');
+  } else {
+    reasons.push('Document file exists in storage.');
+  }
+
+  if (sizeBytes <= 0) {
+    recommendedStatus = 'rejected';
+    confidence = Math.max(confidence, 95);
+    reasons.push('Document file is empty.');
+  } else if (sizeBytes < 1024) {
+    if (recommendedStatus !== 'rejected') recommendedStatus = 'rejected';
+    confidence = Math.max(confidence, 75);
+    warnings.push('File is very small; it may be a test file, placeholder, or incomplete document.');
+  } else {
+    reasons.push('Document file size looks acceptable for review.');
+  }
+
+  if (filename.includes('expired') || filename.includes('vencido') || filename.includes('expirado')) {
+    recommendedStatus = 'expired';
+    confidence = Math.max(confidence, 85);
+    reasons.push('Filename suggests the document may be expired.');
+  }
+
+  if (filename.includes('wrong') || filename.includes('incorrect') || filename.includes('invalid')) {
+    recommendedStatus = 'rejected';
+    confidence = Math.max(confidence, 85);
+    reasons.push('Filename suggests the document may be invalid or incorrect.');
+  }
+
+  if (documentType.includes('nif') || documentType.includes('nuit')) {
+    reasons.push('Document type is related to supplier tax identification.');
+    if (doc.supplier_nif) {
+      reasons.push('Supplier has a tax identification number recorded in the system.');
+    } else {
+      warnings.push('Supplier does not have a NUIT/NIF recorded in the system.');
+      confidence = Math.min(confidence, 65);
+    }
+  }
+
+  if (documentType.includes('tax_clearance')) {
+    reasons.push('Tax clearance documents normally require validity-date review.');
+    warnings.push('AI could not confirm expiry date from metadata alone; officer should confirm document validity date.');
+    confidence = Math.min(confidence, 72);
+  }
+
+  if (!['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].includes(mimeType)) {
+    recommendedStatus = 'rejected';
+    confidence = Math.max(confidence, 90);
+    reasons.push('Unsupported or suspicious file type detected.');
+  } else {
+    reasons.push('File type is allowed by the procurement system.');
+  }
+
+  if (Number(doc.risk_score || 0) >= 70) {
+    warnings.push('Supplier has a high risk score; officer should review this document carefully.');
+    confidence = Math.min(confidence, 68);
+  }
+
+  if (recommendedStatus === 'verified') {
+    warnings.push('This is an AI pre-validation only. Final approval should remain with the procurement officer.');
+  }
+
+  const recommendation = {
+    document_id: doc.id,
+    supplier_id: doc.supplier_id,
+    supplier_name: doc.supplier_name,
+    original_filename: doc.original_filename,
+    document_type: doc.document_type,
+    current_status: doc.verification_status,
+    recommended_status: recommendedStatus,
+    confidence,
+    reasons,
+    warnings,
+    model: 'supplier-document-validator-v1',
+    provider: 'local-rules'
+  };
+
+  await audit(req.user, 'ai_validate', 'supplier_document', doc.id, {
+    supplier_id: req.params.id,
+    supplier_name: doc.supplier_name,
+    filename: doc.original_filename,
+    current_status: doc.verification_status,
+    recommended_status: recommendedStatus,
+    confidence
+  }, req.ip);
+
+  res.json({ recommendation });
+});
+
 router.get('/:id/documents/:documentId/download', async (req: AuthedRequest, res) => {
   const doc = await one(
     `select sd.*
@@ -190,6 +311,50 @@ router.get('/:id/documents/:documentId/download', async (req: AuthedRequest, res
   if (!fs.existsSync(doc.file_path)) return res.status(404).json({ error: 'Stored file not found' });
 
   res.download(doc.file_path, doc.original_filename);
+});
+
+router.patch('/:id/documents/:documentId/status', async (req: AuthedRequest, res) => {
+  const body = documentStatusSchema.parse(req.body);
+
+  const current = await one(
+    `select sd.*, s.name as supplier_name
+     from supplier_documents sd
+     join suppliers s on s.id = sd.supplier_id
+     where sd.id=$1
+       and sd.supplier_id=$2
+       and sd.organization_id=$3
+       and s.organization_id=$3`,
+    [req.params.documentId, req.params.id, req.user!.organization_id]
+  );
+
+  if (!current) return res.status(404).json({ error: 'Document not found' });
+
+  const row = await one(
+    `update supplier_documents
+     set verification_status=$4,
+         notes=coalesce($5, notes),
+         updated_at=now()
+     where id=$1 and supplier_id=$2 and organization_id=$3
+     returning id, supplier_id, document_type, original_filename, mime_type, size_bytes,
+               verification_status, notes, created_at, updated_at`,
+    [
+      req.params.documentId,
+      req.params.id,
+      req.user!.organization_id,
+      body.verification_status,
+      body.notes
+    ]
+  );
+
+  await audit(req.user, 'update_status', 'supplier_document', row.id, {
+    supplier_id: req.params.id,
+    supplier_name: current.supplier_name,
+    filename: current.original_filename,
+    old_status: current.verification_status,
+    new_status: row.verification_status
+  }, req.ip);
+
+  res.json(row);
 });
 
 router.delete('/:id', async (req: AuthedRequest, res) => {

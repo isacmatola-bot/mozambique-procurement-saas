@@ -1,10 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import {
   api,
+  aiValidateSupplierDocument,
   downloadSupplierDocument,
   getSupplierDocuments,
   SupplierDocument,
-  uploadSupplierDocument
+  SupplierDocumentAiRecommendation,
+  uploadSupplierDocument,
+  updateSupplierDocumentStatus
 } from '../api';
 import { ErrorBox, SuccessBox } from '../ui/Status';
 
@@ -40,10 +43,15 @@ function formatSize(value?: string | number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function documentTypeLabel(value: string) {
+  return documentTypes.find(t => t.value === value)?.label || value;
+}
+
 export function Suppliers() {
   const [rows, setRows] = useState<Supplier[]>([]);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [documents, setDocuments] = useState<SupplierDocument[]>([]);
+  const [aiRecommendation, setAiRecommendation] = useState<SupplierDocumentAiRecommendation | null>(null);
   const [form, setForm] = useState({ name: '', nif: '', category: 'goods', email: '', local_supplier: true });
   const [docForm, setDocForm] = useState({ documentType: 'tax_clearance', notes: '', file: null as File | null });
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -88,6 +96,7 @@ export function Suppliers() {
 
   async function selectSupplier(supplier: Supplier) {
     setSelectedSupplier(supplier);
+    setAiRecommendation(null);
     setError('');
     setSuccess('');
     try {
@@ -121,6 +130,7 @@ export function Suppliers() {
 
       setDocForm({ documentType: 'tax_clearance', notes: '', file: null });
       setFileInputKey(k => k + 1);
+      setAiRecommendation(null);
       setSuccess('Supplier document uploaded.');
       await loadDocuments(selectedSupplier.id);
     } catch (err: any) {
@@ -136,6 +146,65 @@ export function Suppliers() {
 
     try {
       await downloadSupplierDocument(selectedSupplier.id, doc.id, doc.original_filename);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function changeDocumentStatus(doc: SupplierDocument, status: 'verified' | 'rejected' | 'expired') {
+    if (!selectedSupplier) return;
+
+    setError('');
+    setSuccess('');
+
+    const notesByStatus = {
+      verified: 'Document verified by procurement officer.',
+      rejected: 'Document rejected by procurement officer.',
+      expired: 'Document marked as expired by procurement officer.'
+    };
+
+    try {
+      await updateSupplierDocumentStatus(selectedSupplier.id, doc.id, status, notesByStatus[status]);
+      setAiRecommendation(null);
+      setSuccess(`Document marked as ${status}.`);
+      await loadDocuments(selectedSupplier.id);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function runAiValidation(doc: SupplierDocument) {
+    if (!selectedSupplier) return;
+
+    setError('');
+    setSuccess('');
+
+    try {
+      const result = await aiValidateSupplierDocument(selectedSupplier.id, doc.id);
+      setAiRecommendation(result.recommendation);
+      setSuccess(`AI recommends: ${result.recommendation.recommended_status} (${result.recommendation.confidence}% confidence).`);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function acceptAiRecommendation() {
+    if (!selectedSupplier || !aiRecommendation) return;
+
+    setError('');
+    setSuccess('');
+
+    try {
+      await updateSupplierDocumentStatus(
+        selectedSupplier.id,
+        aiRecommendation.document_id,
+        aiRecommendation.recommended_status,
+        `AI recommendation accepted by procurement officer. Confidence: ${aiRecommendation.confidence}%.`
+      );
+
+      setSuccess(`AI recommendation accepted: ${aiRecommendation.recommended_status}.`);
+      setAiRecommendation(null);
+      await loadDocuments(selectedSupplier.id);
     } catch (err: any) {
       setError(err.message);
     }
@@ -273,6 +342,38 @@ export function Suppliers() {
         <div className="card table-wrap">
           <h3>Documents for {selectedSupplier.name}</h3>
 
+          {aiRecommendation && (
+            <div className="card" style={{ marginBottom: '1rem' }}>
+              <h4>AI document validation</h4>
+              <p>
+                Recommended status: <strong>{aiRecommendation.recommended_status}</strong> · Confidence:{' '}
+                <strong>{aiRecommendation.confidence}%</strong>
+              </p>
+
+              <p className="muted">File: {aiRecommendation.original_filename}</p>
+
+              <div>
+                <strong>Reasons</strong>
+                <ul>
+                  {aiRecommendation.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
+                </ul>
+              </div>
+
+              {aiRecommendation.warnings.length > 0 && (
+                <div>
+                  <strong>Warnings</strong>
+                  <ul>
+                    {aiRecommendation.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <button className="btn" type="button" onClick={acceptAiRecommendation}>
+                Accept AI Decision
+              </button>
+            </div>
+          )}
+
           {documents.length === 0 ? (
             <p className="muted">No documents uploaded yet.</p>
           ) : (
@@ -291,14 +392,28 @@ export function Suppliers() {
                 {documents.map(doc => (
                   <tr key={doc.id}>
                     <td>{doc.original_filename}<div className="muted">{doc.notes}</div></td>
-                    <td>{doc.document_type}</td>
+                    <td>{documentTypeLabel(doc.document_type)}</td>
                     <td>{formatSize(doc.size_bytes)}</td>
                     <td><span className="badge">{doc.verification_status}</span></td>
                     <td>{new Date(doc.created_at).toLocaleDateString('en-GB')}</td>
                     <td>
-                      <button className="btn secondary" type="button" onClick={() => downloadDocument(doc)}>
-                        Download
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button className="btn secondary" type="button" onClick={() => downloadDocument(doc)}>
+                          Download
+                        </button>
+                        <button className="btn secondary" type="button" onClick={() => runAiValidation(doc)}>
+                          AI Validate
+                        </button>
+                        <button className="btn secondary" type="button" onClick={() => changeDocumentStatus(doc, 'verified')}>
+                          Verify
+                        </button>
+                        <button className="btn secondary" type="button" onClick={() => changeDocumentStatus(doc, 'rejected')}>
+                          Reject
+                        </button>
+                        <button className="btn secondary" type="button" onClick={() => changeDocumentStatus(doc, 'expired')}>
+                          Expired
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
