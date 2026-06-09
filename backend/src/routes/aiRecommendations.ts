@@ -79,14 +79,35 @@ function scoreSupplier(tender: any, supplier: any, performanceScore: number, ris
     textValue(supplier, ['category', 'procurement_category', 'specialization', 'sector'])
   );
 
-  let score = 50;
+  const bidAmount = numberValue(supplier, ['bid_amount'], 0);
+  const bidTechnicalScore = numberValue(supplier, ['bid_technical_score'], 0);
+  const bidFinancialScore = numberValue(supplier, ['bid_financial_score'], 0);
+  const bidTotalScore = numberValue(supplier, ['bid_total_score'], 0);
+  const tenderBudget = numberValue(tender, ['estimated_budget', 'budget', 'estimated_value', 'value'], 0);
+
+  let score = 0;
+
+  if (bidTotalScore > 0) {
+    score += bidTotalScore * 0.55;
+    reasons.push(`Tender-specific total bid score is the main ranking factor: ${bidTotalScore}.`);
+  }
+
+  if (bidTechnicalScore > 0) {
+    score += bidTechnicalScore * 0.1;
+    reasons.push(`Tender-specific technical bid score considered: ${bidTechnicalScore}.`);
+  }
+
+  if (bidFinancialScore > 0) {
+    score += bidFinancialScore * 0.1;
+    reasons.push(`Tender-specific financial bid score considered: ${bidFinancialScore}.`);
+  }
 
   if (tenderCategory && supplierCategory && supplierCategory.includes(tenderCategory)) {
-    score += 20;
+    score += 8;
     reasons.push('Supplier category matches the tender requirement.');
   } else if (tenderCategory && supplierCategory) {
-    score += 8;
-    reasons.push('Supplier has some category information but not an exact match.');
+    score += 3;
+    reasons.push('Supplier has category information, but it is not an exact tender match.');
   } else {
     reasons.push('Category information is incomplete.');
   }
@@ -94,18 +115,30 @@ function scoreSupplier(tender: any, supplier: any, performanceScore: number, ris
   const status = normalize(textValue(supplier, ['status', 'compliance_status', 'approval_status'], 'active'));
 
   if (['active', 'approved', 'compliant', 'verified'].includes(status)) {
-    score += 15;
+    score += 7;
     reasons.push('Supplier appears active/compliant.');
   } else {
-    score -= 15;
+    score -= 20;
     reasons.push(`Supplier status may require review: ${status}.`);
   }
 
-  score += Math.min(20, Math.max(0, performanceScore * 0.2));
+  if (tenderBudget > 0 && bidAmount > 0) {
+    if (bidAmount <= tenderBudget) {
+      score += 5;
+      reasons.push(`Bid amount ${bidAmount.toFixed(2)} is within the tender budget ${tenderBudget.toFixed(2)}.`);
+    } else {
+      score -= 15;
+      reasons.push(`Bid amount ${bidAmount.toFixed(2)} exceeds the tender budget ${tenderBudget.toFixed(2)}.`);
+    }
+  } else if (bidAmount > 0) {
+    reasons.push(`Bid amount considered: ${bidAmount.toFixed(2)}.`);
+  }
+
+  score += Math.min(5, Math.max(0, performanceScore * 0.05));
   reasons.push(`Historical performance score considered: ${performanceScore.toFixed(2)}.`);
 
   const supplierCapacity = numberValue(supplier, ['capacity_score', 'financial_capacity_score', 'delivery_capacity_score'], 70);
-  score += Math.min(10, supplierCapacity * 0.1);
+  score += Math.min(3, supplierCapacity * 0.03);
   reasons.push(`Capacity indicator considered: ${supplierCapacity}.`);
 
   score -= riskPenalty;
@@ -117,6 +150,7 @@ function scoreSupplier(tender: any, supplier: any, performanceScore: number, ris
     reasons
   };
 }
+
 
 router.post('/recommendations/run', async (req, res, next) => {
   try {
@@ -137,14 +171,36 @@ router.post('/recommendations/run', async (req, res, next) => {
 
     const tender = tenderResult[0];
 
-    const suppliersResult = await query(`SELECT * FROM suppliers ORDER BY created_at DESC NULLS LAST`, []);
-    const suppliers = suppliersResult;
+    const bidRows = await query(
+      `
+      SELECT
+        s.*,
+        b.id AS bid_id,
+        b.amount AS bid_amount,
+        b.currency AS bid_currency,
+        b.technical_score AS bid_technical_score,
+        b.financial_score AS bid_financial_score,
+        b.total_score AS bid_total_score,
+        b.local_preference_applied AS bid_local_preference_applied,
+        b.status AS bid_status,
+        b.submitted_at AS bid_submitted_at,
+        b.notes AS bid_notes
+      FROM bids b
+      JOIN suppliers s ON s.id = b.supplier_id
+      WHERE b.tender_id = $1
+        AND b.status IN ('submitted', 'under_review', 'qualified', 'winner')
+      ORDER BY b.total_score DESC, b.submitted_at ASC
+      `,
+      [String(tenderId)]
+    );
+
+    const suppliers = bidRows;
 
     if (suppliers.length === 0) {
-      return res.status(400).json({ error: 'No suppliers found to rank' });
+      return res.status(400).json({ error: 'No bids found for this tender to rank' });
     }
 
-    await query(`DELETE FROM ai_supplier_recommendations WHERE tender_id = $1 AND status = 'pending'`, [
+    await query(`DELETE FROM ai_supplier_recommendations WHERE tender_id = $1`, [
       String(tenderId)
     ]);
 
